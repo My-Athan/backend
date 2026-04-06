@@ -7,6 +7,9 @@ import { adminAuth } from '../../middleware/device-auth.js';
 export async function analyticsRoutes(app: FastifyInstance) {
   app.addHook('preHandler', adminAuth);
 
+  // Route-level rate limiting (supplements global @fastify/rate-limit)
+  const routeRateLimit = { config: { rateLimit: { max: 60, timeWindow: '1 minute' } } };
+
   // ── GET /api/admin/analytics/map ──────────────────────────
   // All devices with location for map visualization
   app.get('/map', async (_request, reply) => {
