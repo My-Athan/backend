@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, desc } from 'drizzle-orm';
 import { z } from 'zod';
 import { db, schema } from '../../db/index.js';
 import { deviceAuth, deriveApiKey } from '../../middleware/device-auth.js';
@@ -15,6 +15,7 @@ const registerSchema = z.object({
 
 const heartbeatSchema = z.object({
   firmwareVersion: z.string().max(20).optional(),
+  hardwareType: z.string().max(30).optional(),
   freeHeap: z.number().int().nonnegative().optional(),
   lat: z.number().min(-90).max(90).optional(),
   lon: z.number().min(-180).max(180).optional(),
@@ -127,7 +128,7 @@ export async function deviceRoutes(app: FastifyInstance) {
       return reply.status(400).send({ error: 'Invalid input' });
     }
     const device = (request as any).device;
-    const { firmwareVersion, freeHeap, wifiRssi, uptime, prayerPlays, errors, consumedTriggerId, lat, lon } = parsed.data;
+    const { firmwareVersion, hardwareType, freeHeap, wifiRssi, uptime, prayerPlays, errors, consumedTriggerId, lat, lon } = parsed.data;
 
     // Update device record (including location if provided)
     await db
@@ -136,6 +137,7 @@ export async function deviceRoutes(app: FastifyInstance) {
         lastHeartbeat: new Date(),
         lastIp: request.ip,
         firmwareVersion: firmwareVersion || device.firmwareVersion,
+        hardwareType: hardwareType ?? device.hardwareType,
         lat: lat ?? device.lat,
         lon: lon ?? device.lon,
         updatedAt: new Date(),
@@ -261,45 +263,118 @@ export async function deviceRoutes(app: FastifyInstance) {
   // ── GET /api/device/ota/check ─────────────────────────────
   // Device checks if a newer firmware version is available.
   app.get<{
-    Querystring: { currentVersion: string };
+    Querystring: { currentVersion: string; hardwareType?: string };
   }>('/ota/check', {
     preHandler: deviceAuth,
   }, async (request, reply) => {
-    const { currentVersion } = request.query;
+    const { currentVersion, hardwareType } = request.query;
     const device = (request as any).device;
 
-    // Find latest stable release
+    // Update device hardware type if provided
+    if (hardwareType) {
+      await db
+        .update(schema.devices)
+        .set({ hardwareType, updatedAt: new Date() })
+        .where(eq(schema.devices.id, device.id));
+    }
+
+    const hwType = hardwareType || device.hardwareType || 'esp32c3-v1';
+
+    // Find latest stable release with autoUpdate enabled for this hardware type
     const [latest] = await db
       .select()
       .from(schema.releases)
-      .where(eq(schema.releases.isStable, true))
-      .orderBy(schema.releases.createdAt)
+      .where(
+        and(
+          eq(schema.releases.isStable, true),
+          eq(schema.releases.autoUpdate, true),
+          eq(schema.releases.hardwareType, hwType),
+        )
+      )
+      .orderBy(desc(schema.releases.createdAt))
       .limit(1);
 
-    if (!latest) {
+    // Check for pending force ota_update command
+    const [forceCmd] = await db
+      .select()
+      .from(schema.deviceCommands)
+      .where(
+        and(
+          eq(schema.deviceCommands.deviceId, device.deviceId),
+          eq(schema.deviceCommands.command, 'ota_update'),
+          eq(schema.deviceCommands.status, 'pending'),
+        )
+      )
+      .orderBy(desc(schema.deviceCommands.createdAt))
+      .limit(1);
+
+    // If no autoUpdate release and no force command, no update
+    if (!latest && !forceCmd) {
       return reply.send({ updateAvailable: false });
     }
 
-    // Simple version comparison (semver)
-    if (latest.version === currentVersion) {
+    // Determine target release: force command specifies a version, otherwise use latest
+    let targetRelease = latest;
+    if (forceCmd) {
+      const forcePayload = forceCmd.payload as Record<string, unknown>;
+      const forceVersion = forcePayload?.version as string | undefined;
+      if (forceVersion) {
+        const [forced] = await db
+          .select()
+          .from(schema.releases)
+          .where(eq(schema.releases.version, forceVersion))
+          .limit(1);
+        if (forced) targetRelease = forced;
+      }
+    }
+
+    if (!targetRelease) {
       return reply.send({ updateAvailable: false });
+    }
+
+    // Semver comparison: release must be newer than current
+    if (compareSemver(targetRelease.version, currentVersion) <= 0) {
+      return reply.send({ updateAvailable: false });
+    }
+
+    // Check minVersion constraint: device must be at or above minVersion
+    if (targetRelease.minVersion && compareSemver(currentVersion, targetRelease.minVersion) < 0) {
+      return reply.send({ updateAvailable: false, reason: 'below_min_version' });
     }
 
     // Check rollout percentage
-    if (latest.rolloutPercent < 100) {
+    if (targetRelease.rolloutPercent < 100 && !forceCmd) {
       const hash = hashDeviceId(device.deviceId);
-      if (hash > latest.rolloutPercent) {
+      if (hash > targetRelease.rolloutPercent) {
         return reply.send({ updateAvailable: false, reason: 'staged_rollout' });
       }
     }
 
+    // Check device config ota.autoUpdateEnabled (skip if false, unless force command)
+    if (!forceCmd) {
+      const config = (device.config || {}) as Record<string, unknown>;
+      const otaConfig = config.ota as Record<string, unknown> | undefined;
+      if (otaConfig && otaConfig.autoUpdateEnabled === false) {
+        return reply.send({ updateAvailable: false, reason: 'auto_update_disabled' });
+      }
+    }
+
+    // If force command, mark it as delivered
+    if (forceCmd) {
+      await db
+        .update(schema.deviceCommands)
+        .set({ status: 'delivered', deliveredAt: new Date() })
+        .where(eq(schema.deviceCommands.id, forceCmd.id));
+    }
+
     return reply.send({
       updateAvailable: true,
-      version: latest.version,
-      sha256: latest.sha256,
-      size: latest.size,
-      url: latest.r2Url,
-      releaseNotes: latest.releaseNotes,
+      version: targetRelease.version,
+      sha256: targetRelease.sha256,
+      size: targetRelease.size,
+      url: targetRelease.r2Url,
+      releaseNotes: targetRelease.releaseNotes,
+      forced: !!forceCmd,
     });
   });
 
@@ -332,6 +407,17 @@ export async function deviceRoutes(app: FastifyInstance) {
       })),
     });
   });
+}
+
+// Compare semver strings: returns 1 if a > b, -1 if a < b, 0 if equal
+function compareSemver(a: string, b: string): number {
+  const pa = a.split('.').map(Number);
+  const pb = b.split('.').map(Number);
+  for (let i = 0; i < 3; i++) {
+    if ((pa[i] || 0) > (pb[i] || 0)) return 1;
+    if ((pa[i] || 0) < (pb[i] || 0)) return -1;
+  }
+  return 0;
 }
 
 // Hash device ID to 0-100 for staged rollout selection

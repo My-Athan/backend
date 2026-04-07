@@ -2,8 +2,11 @@ import type { FastifyInstance } from 'fastify';
 import { eq, desc, sql, and, gte } from 'drizzle-orm';
 import { z } from 'zod';
 import bcrypt from 'bcryptjs';
+import crypto from 'crypto';
+import multipart from '@fastify/multipart';
 import { db, schema } from '../../db/index.js';
 import { adminAuth } from '../../middleware/device-auth.js';
+import { uploadFirmware, getFirmwareDownloadUrl } from '../../services/audio-catalog.js';
 
 // ── Zod Schemas ─────────────────────────────────────────────
 
@@ -18,18 +21,22 @@ const setupSchema = z.object({
 });
 
 const releaseSchema = z.object({
-  version: z.string().regex(/^\d+\.\d+\.\d+$/),
+  version: z.string().regex(/^\d+\.\d+\.\d+(-[\w.]+)?$/),
   sha256: z.string().length(64),
   size: z.number().int().positive().max(2_000_000),
   r2Url: z.string().url(),
   releaseNotes: z.string().max(5000).optional(),
   rolloutPercent: z.number().int().min(0).max(100).optional(),
+  hardwareType: z.string().max(30).optional(),
 });
 
 const releaseUpdateSchema = z.object({
   rolloutPercent: z.number().int().min(0).max(100).optional(),
   isStable: z.boolean().optional(),
   releaseNotes: z.string().max(5000).optional(),
+  autoUpdate: z.boolean().optional(),
+  hardwareType: z.string().max(30).optional(),
+  minVersion: z.string().max(20).optional(),
 });
 
 const groupSchema = z.object({
@@ -48,6 +55,8 @@ const paginationSchema = z.object({
 });
 
 export async function adminRoutes(app: FastifyInstance) {
+  // Register multipart support for file uploads
+  await app.register(multipart, { limits: { fileSize: 2 * 1024 * 1024 } });
 
   // ── POST /api/admin/auth/login ────────────────────────────
   app.post('/auth/login', async (request, reply) => {
@@ -257,7 +266,7 @@ export async function adminRoutes(app: FastifyInstance) {
     if (!parsed.success) {
       return reply.status(400).send({ error: 'Invalid input', details: parsed.error.flatten() });
     }
-    const { version, sha256, size, r2Url, releaseNotes, rolloutPercent } = parsed.data;
+    const { version, sha256, size, r2Url, releaseNotes, rolloutPercent, hardwareType } = parsed.data;
 
     const [existing] = await db
       .select().from(schema.releases)
@@ -272,6 +281,7 @@ export async function adminRoutes(app: FastifyInstance) {
         releaseNotes: releaseNotes || '',
         rolloutPercent: rolloutPercent || 10,
         isStable: false,
+        hardwareType: hardwareType || 'esp32c3-v1',
       })
       .returning();
 
