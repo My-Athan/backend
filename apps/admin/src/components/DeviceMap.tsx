@@ -4,6 +4,12 @@ import { api } from '../lib/api';
 // Leaflet loaded via CDN in Map.tsx to avoid bundling issues
 declare const L: any;
 
+function escapeHtml(str: string | null | undefined): string {
+  if (!str) return '';
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+}
+
 interface MapDevice {
   deviceId: string;
   lat: number;
@@ -79,32 +85,33 @@ export function DeviceMap() {
 
       const marker = L.marker([d.lat, d.lon], { icon });
 
+      const safeId = escapeHtml(d.deviceId);
       const popupHtml = `
         <div style="font-family:system-ui;min-width:240px">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-            <span style="font-weight:700;font-size:14px;font-family:monospace">${d.deviceId}</span>
+            <span style="font-weight:700;font-size:14px;font-family:monospace">${safeId}</span>
             <span style="display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:600;
               background:${d.online ? '#dcfce7' : '#fee2e2'};color:${d.online ? '#166534' : '#991b1b'}">
               ${d.online ? 'Online' : 'Offline'}
             </span>
           </div>
           <div style="font-size:12px;color:#555;display:grid;grid-template-columns:1fr 1fr;gap:4px 12px">
-            <span>Firmware</span><span style="font-weight:600">v${d.firmwareVersion || '?'}</span>
-            <span>Location</span><span style="font-weight:600">${d.city || ''} ${d.country || ''}</span>
+            <span>Firmware</span><span style="font-weight:600">v${escapeHtml(d.firmwareVersion) || '?'}</span>
+            <span>Location</span><span style="font-weight:600">${escapeHtml(d.city)} ${escapeHtml(d.country)}</span>
             <span>WiFi</span><span style="font-weight:600">${d.wifiRssi ? d.wifiRssi + ' dBm' : '—'}</span>
             <span>Prayers today</span><span style="font-weight:600">${d.prayerPlaysToday}</span>
             <span>Last seen</span><span style="font-weight:600">${d.lastHeartbeat ? new Date(d.lastHeartbeat).toLocaleString() : 'Never'}</span>
           </div>
           <div style="display:flex;gap:6px;margin-top:10px;border-top:1px solid #eee;padding-top:10px">
-            <button onclick="window.__deviceCmd('${d.deviceId}','ota_update')"
+            <button onclick="window.__deviceCmd('${safeId}','ota_update')"
               style="flex:1;padding:6px;font-size:11px;font-weight:600;border:1px solid #ddd;border-radius:6px;background:#eff6ff;color:#2563eb;cursor:pointer">
               Update
             </button>
-            <button onclick="window.__deviceCmd('${d.deviceId}','wifi_reset')"
+            <button onclick="window.__deviceCmd('${safeId}','wifi_reset')"
               style="flex:1;padding:6px;font-size:11px;font-weight:600;border:1px solid #ddd;border-radius:6px;background:#fef3c7;color:#92400e;cursor:pointer">
               Reset WiFi
             </button>
-            <button onclick="window.__deviceCmd('${d.deviceId}','restart')"
+            <button onclick="window.__deviceCmd('${safeId}','restart')"
               style="flex:1;padding:6px;font-size:11px;font-weight:600;border:1px solid #ddd;border-radius:6px;background:#fee2e2;color:#991b1b;cursor:pointer">
               Restart
             </button>

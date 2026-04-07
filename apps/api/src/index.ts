@@ -2,6 +2,7 @@ import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import jwt from '@fastify/jwt';
 import rateLimit from '@fastify/rate-limit';
+import crypto from 'node:crypto';
 import { deviceRoutes } from './routes/device/index.js';
 import { adminRoutes } from './routes/admin/index.js';
 import { analyticsRoutes } from './routes/admin/analytics.js';
@@ -42,8 +43,12 @@ await app.register(cors, {
 });
 
 // JWT
+const jwtSecret = process.env.JWT_SECRET || (() => {
+  console.warn('[WARN] JWT_SECRET not set — using random dev secret (sessions will not persist across restarts)');
+  return crypto.randomBytes(32).toString('hex');
+})();
 await app.register(jwt, {
-  secret: process.env.JWT_SECRET || 'dev-secret-DO-NOT-USE-IN-PRODUCTION',
+  secret: jwtSecret,
 });
 
 // Rate limiting

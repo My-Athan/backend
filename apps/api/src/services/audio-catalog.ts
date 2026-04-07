@@ -20,6 +20,9 @@ const r2 = new S3Client({
 
 const BUCKET = process.env.R2_BUCKET || 'myathan';
 
+const ALLOWED_CATEGORIES = ['athan', 'doaa', 'takbeer', 'suhoor', 'iqama'] as const;
+const ALLOWED_CONTENT_TYPES = ['audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/ogg', 'audio/aac'];
+
 export interface AudioFile {
   key: string;
   name: string;
@@ -34,6 +37,15 @@ export async function uploadAudio(
   data: Buffer,
   contentType = 'audio/mpeg',
 ): Promise<string> {
+  if (!(ALLOWED_CATEGORIES as readonly string[]).includes(category)) {
+    throw new Error(`Invalid category: ${category}`);
+  }
+  if (!filename || /[\/\\]|\.\./.test(filename)) {
+    throw new Error(`Invalid filename: ${filename}`);
+  }
+  if (!ALLOWED_CONTENT_TYPES.includes(contentType)) {
+    throw new Error(`Invalid content type: ${contentType}`);
+  }
   const key = `audio/${category}/${filename}`;
 
   await r2.send(new PutObjectCommand({
@@ -47,6 +59,9 @@ export async function uploadAudio(
 }
 
 export async function listAudio(category?: string): Promise<AudioFile[]> {
+  if (category && !(ALLOWED_CATEGORIES as readonly string[]).includes(category)) {
+    throw new Error(`Invalid category: ${category}`);
+  }
   const prefix = category ? `audio/${category}/` : 'audio/';
 
   const result = await r2.send(new ListObjectsV2Command({

@@ -35,32 +35,36 @@ export const api = {
     request<{ token: string; user: { id: string; email: string; role: string }; mustChangePassword: boolean }>('POST', '/api/admin/auth/login', { email, password }),
   setup: (email: string, password: string) =>
     request<{ token: string; user: { id: string; email: string; role: string } }>('POST', '/api/admin/auth/setup', { email, password }),
-  getDevices: (page = 1, limit = 50) =>
-    request<{ devices: any[]; total: number }>('GET', `/api/admin/devices?page=${page}&limit=${limit}`),
+  getDevices: (page = 1, limit = 50) => {
+    const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+    return request<{ devices: any[]; total: number }>('GET', `/api/admin/devices?${params}`);
+  },
   getDevice: (deviceId: string) =>
-    request<{ device: any; stats: any[] }>('GET', `/api/admin/devices/${deviceId}`),
+    request<{ device: any; stats: any[] }>('GET', `/api/admin/devices/${encodeURIComponent(deviceId)}`),
   updateDeviceConfig: (deviceId: string, config: Record<string, unknown>) =>
-    request<{ ok: boolean }>('PUT', `/api/admin/devices/${deviceId}/config`, config),
+    request<{ ok: boolean }>('PUT', `/api/admin/devices/${encodeURIComponent(deviceId)}/config`, config),
   getReleases: () =>
     request<{ releases: any[] }>('GET', '/api/admin/releases'),
   createRelease: (data: { version: string; sha256: string; size: number; r2Url: string; releaseNotes?: string }) =>
     request<{ release: any }>('POST', '/api/admin/releases', data),
   updateRelease: (version: string, data: { rolloutPercent?: number; isStable?: boolean }) =>
-    request<{ release: any }>('PUT', `/api/admin/releases/${version}`, data),
+    request<{ release: any }>('PUT', `/api/admin/releases/${encodeURIComponent(version)}`, data),
   getGroups: () =>
     request<{ groups: any[] }>('GET', '/api/admin/groups'),
   createGroup: (name: string, deviceIds?: string[]) =>
     request<{ group: any }>('POST', '/api/admin/groups', { name, deviceIds }),
   triggerSync: (groupId: string, prayer: number) =>
-    request<{ trigger: any }>('POST', `/api/admin/groups/${groupId}/sync`, { prayer }),
-  getStats: (days = 7) =>
-    request<{ totalDevices: number; onlineDevices: number; dailyStats: any[]; firmwareVersions: any[] }>('GET', `/api/admin/stats?days=${days}`),
+    request<{ trigger: any }>('POST', `/api/admin/groups/${encodeURIComponent(groupId)}/sync`, { prayer }),
+  getStats: (days = 7) => {
+    const params = new URLSearchParams({ days: String(days) });
+    return request<{ totalDevices: number; onlineDevices: number; dailyStats: any[]; firmwareVersions: any[] }>('GET', `/api/admin/stats?${params}`);
+  },
   getMapDevices: () =>
     request<{ devices: any[] }>('GET', '/api/admin/analytics/map'),
   sendDeviceCommand: (deviceId: string, command: string, payload?: Record<string, unknown>) =>
-    request<{ command: any }>('POST', `/api/admin/analytics/devices/${deviceId}/command`, { command, payload }),
+    request<{ command: any }>('POST', `/api/admin/analytics/devices/${encodeURIComponent(deviceId)}/command`, { command, payload }),
   getDeviceCommands: (deviceId: string) =>
-    request<{ commands: any[] }>('GET', `/api/admin/analytics/devices/${deviceId}/commands`),
+    request<{ commands: any[] }>('GET', `/api/admin/analytics/devices/${encodeURIComponent(deviceId)}/commands`),
   uploadRelease: (file: File, version: string, hardwareType: string, releaseNotes?: string) => {
     const form = new FormData();
     form.append('file', file);
@@ -75,7 +79,7 @@ export const api = {
     }).then(r => r.json());
   },
   forceUpdateDevice: (deviceId: string, version: string) =>
-    request<{ command: any }>('POST', `/api/admin/analytics/devices/${deviceId}/command`, {
+    request<{ command: any }>('POST', `/api/admin/analytics/devices/${encodeURIComponent(deviceId)}/command`, {
       command: 'ota_update',
       payload: { version, force: true },
     }),

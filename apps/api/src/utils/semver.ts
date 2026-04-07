@@ -1,3 +1,5 @@
+import crypto from 'node:crypto';
+
 // Compare semver strings: returns 1 if a > b, -1 if a < b, 0 if equal
 export function compareSemver(a: string, b: string): number {
   const pa = a.split('.').map(Number);
@@ -9,11 +11,8 @@ export function compareSemver(a: string, b: string): number {
   return 0;
 }
 
-// Hash device ID to 0-100 for staged rollout selection
+// Hash device ID to 0-99 for staged rollout selection
 export function hashDeviceId(deviceId: string): number {
-  let hash = 0;
-  for (let i = 0; i < deviceId.length; i++) {
-    hash = (hash * 31 + deviceId.charCodeAt(i)) & 0x7fffffff;
-  }
-  return hash % 100;
+  const hash = crypto.createHash('sha256').update(deviceId).digest();
+  return hash.readUInt16BE(0) % 100;
 }

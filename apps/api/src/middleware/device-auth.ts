@@ -12,7 +12,13 @@ import crypto from 'node:crypto';
 // API key is derived from the device MAC address + server salt.
 // ─────────────────────────────────────────────────────────────
 
-const API_KEY_SALT = process.env.API_KEY_SALT || 'myathan-default-salt-change-in-prod';
+const API_KEY_SALT = process.env.API_KEY_SALT || (() => {
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('FATAL: API_KEY_SALT must be set in production');
+  }
+  console.warn('[WARN] API_KEY_SALT not set — using random dev salt (device keys will not persist across restarts)');
+  return crypto.randomBytes(16).toString('hex');
+})();
 
 export function deriveApiKey(deviceId: string): string {
   return crypto
