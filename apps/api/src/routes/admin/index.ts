@@ -4,6 +4,7 @@ import { z } from 'zod';
 import bcrypt from 'bcryptjs';
 import { db, schema } from '../../db/index.js';
 import { adminAuth } from '../../middleware/device-auth.js';
+import rateLimit from '@fastify/rate-limit';
 
 // ── Zod Schemas ─────────────────────────────────────────────
 
@@ -147,6 +148,13 @@ export async function adminRoutes(app: FastifyInstance) {
       token: newToken,
       user: { id: user.id, email, role: user.role },
     });
+  });
+
+  await app.register(rateLimit, {
+    // Apply a reasonable rate limit to all admin routes in this plugin
+    max: 100, // max 100 requests
+    timeWindow: '1 minute',
+    keyGenerator: (request) => request.ip,
   });
 
   // All routes below require admin auth
