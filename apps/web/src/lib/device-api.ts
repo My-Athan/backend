@@ -41,15 +41,18 @@ export class DeviceAPI {
   }
 
   async triggerAthan(prayer: number): Promise<void> {
-    await fetchWithTimeout(`${this.baseUrl}/trigger?prayer=${Math.max(0, Math.min(4, prayer))}`, { method: 'POST' });
+    const params = new URLSearchParams({ prayer: String(Math.max(0, Math.min(4, prayer))) });
+    await fetchWithTimeout(`${this.baseUrl}/trigger?${params}`, { method: 'POST' });
   }
 
   async previewTrack(track: number): Promise<void> {
-    await fetchWithTimeout(`${this.baseUrl}/preview?track=${Math.max(1, Math.min(999, track))}`, { method: 'POST' });
+    const params = new URLSearchParams({ track: String(Math.max(1, Math.min(999, track))) });
+    await fetchWithTimeout(`${this.baseUrl}/preview?${params}`, { method: 'POST' });
   }
 
   async setVolume(level: number): Promise<void> {
-    await fetchWithTimeout(`${this.baseUrl}/volume?level=${Math.max(0, Math.min(30, level))}`, { method: 'POST' });
+    const params = new URLSearchParams({ level: String(Math.max(0, Math.min(30, level))) });
+    await fetchWithTimeout(`${this.baseUrl}/volume?${params}`, { method: 'POST' });
   }
 
   async getConfig(): Promise<DeviceConfig> {

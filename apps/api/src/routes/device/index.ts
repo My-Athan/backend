@@ -27,6 +27,23 @@ const heartbeatSchema = z.object({
   consumedTriggerId: z.string().uuid().optional(),
 });
 
+const DANGEROUS_KEYS = ['__proto__', 'constructor', 'prototype'];
+const ALLOWED_CONFIG_KEYS = [
+  'audio', 'schedule', 'ramadan', 'hijri', 'holidays',
+  'led', 'multiRoom', 'location', 'timetable',
+] as const;
+
+const configUpdateSchema = z.record(z.string(), z.unknown()).transform((obj) => {
+  const sanitized: Record<string, unknown> = {};
+  for (const key of Object.keys(obj)) {
+    if ((ALLOWED_CONFIG_KEYS as readonly string[]).includes(key) &&
+        !DANGEROUS_KEYS.includes(key)) {
+      sanitized[key] = obj[key];
+    }
+  }
+  return sanitized;
+});
+
 const timetableSchema = z.object({
   lat: z.coerce.number().min(-90).max(90),
   lon: z.coerce.number().min(-180).max(180),
@@ -102,8 +119,12 @@ export async function deviceRoutes(app: FastifyInstance) {
   }>('/config', {
     preHandler: deviceAuth,
   }, async (request, reply) => {
+    const parsed = configUpdateSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: 'Invalid config' });
+    }
     const device = (request as any).device;
-    const incoming = request.body;
+    const incoming = parsed.data;
 
     // Merge incoming config with existing
     const currentConfig = (device.config || {}) as Record<string, unknown>;

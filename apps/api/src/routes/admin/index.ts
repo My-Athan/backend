@@ -11,7 +11,7 @@ import { uploadFirmware } from '../../services/audio-catalog.js';
 // ── Zod Schemas ─────────────────────────────────────────────
 
 const loginSchema = z.object({
-  email: z.string().max(255),  // Allow non-email for default 'admin' username
+  email: z.string().email().max(255),
   password: z.string().min(8).max(128),
 });
 
@@ -47,6 +47,23 @@ const groupSchema = z.object({
 const syncSchema = z.object({
   prayer: z.number().int().min(0).max(4),
   delaySeconds: z.number().int().min(5).max(300).optional(),
+});
+
+const DANGEROUS_KEYS = ['__proto__', 'constructor', 'prototype'];
+const ALLOWED_CONFIG_KEYS = [
+  'audio', 'schedule', 'ramadan', 'hijri', 'holidays',
+  'led', 'multiRoom', 'location', 'timetable',
+] as const;
+
+const configUpdateSchema = z.record(z.string(), z.unknown()).transform((obj) => {
+  const sanitized: Record<string, unknown> = {};
+  for (const key of Object.keys(obj)) {
+    if ((ALLOWED_CONFIG_KEYS as readonly string[]).includes(key) &&
+        !DANGEROUS_KEYS.includes(key)) {
+      sanitized[key] = obj[key];
+    }
+  }
+  return sanitized;
 });
 
 const paginationSchema = z.object({
@@ -229,6 +246,10 @@ export async function adminRoutes(app: FastifyInstance) {
   // ── PUT /api/admin/devices/:deviceId/config ───────────────
   app.put<{ Params: { deviceId: string }; Body: Record<string, unknown> }>(
     '/devices/:deviceId/config', async (request, reply) => {
+      const parsed = configUpdateSchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.status(400).send({ error: 'Invalid config' });
+      }
       const { deviceId } = request.params;
 
       const [device] = await db
@@ -240,7 +261,7 @@ export async function adminRoutes(app: FastifyInstance) {
       if (!device) return reply.status(404).send({ error: 'Device not found' });
 
       const currentConfig = (device.config || {}) as Record<string, unknown>;
-      const mergedConfig = { ...currentConfig, ...request.body };
+      const mergedConfig = { ...currentConfig, ...parsed.data };
 
       await db
         .update(schema.devices)
