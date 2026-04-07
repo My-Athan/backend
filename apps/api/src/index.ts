@@ -64,8 +64,10 @@ app.get('/health', async () => ({
   timestamp: new Date().toISOString(),
 }));
 
-// ── Seed default admin ─────────────────────────────────────
+// ── Database migration + seed ──────────────────────────────
+import { migrateDatabase } from './db/migrate.js';
 import { seedDefaultAdmin } from './db/seed.js';
+await migrateDatabase();
 await seedDefaultAdmin();
 
 // ── Start ───────────────────────────────────────────────────
