@@ -112,5 +112,13 @@ export async function migrateDatabase() {
     ALTER TABLE devices ADD COLUMN IF NOT EXISTS country VARCHAR(100);
   `);
 
+  // Add OTA hardware type and auto-update columns (for upgrades)
+  await db.execute(sql`
+    ALTER TABLE releases ADD COLUMN IF NOT EXISTS hardware_type VARCHAR(30) NOT NULL DEFAULT 'esp32c3-v1';
+    ALTER TABLE releases ADD COLUMN IF NOT EXISTS auto_update BOOLEAN NOT NULL DEFAULT false;
+    ALTER TABLE releases ADD COLUMN IF NOT EXISTS min_version VARCHAR(20);
+    ALTER TABLE devices ADD COLUMN IF NOT EXISTS hardware_type VARCHAR(30) DEFAULT 'esp32c3-v1';
+  `);
+
   console.log('[Migrate] Database schema ready.');
 }

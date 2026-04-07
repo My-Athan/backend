@@ -31,6 +31,7 @@ export const devices = pgTable('devices', {
   lon: real('lon'),
   city: varchar('city', { length: 100 }),
   country: varchar('country', { length: 100 }),
+  hardwareType: varchar('hardware_type', { length: 30 }).default('esp32c3-v1'),
   config: jsonb('config').default({}),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
@@ -66,6 +67,9 @@ export const releases = pgTable('releases', {
   releaseNotes: text('release_notes'),
   rolloutPercent: integer('rollout_percent').notNull().default(100),
   isStable: boolean('is_stable').notNull().default(false),
+  hardwareType: varchar('hardware_type', { length: 30 }).notNull().default('esp32c3-v1'),
+  autoUpdate: boolean('auto_update').notNull().default(false),
+  minVersion: varchar('min_version', { length: 20 }),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 });
 

@@ -65,6 +65,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Build shared types
+        run: npm run build --workspace=packages/shared
+
       - name: Push DB schema
         run: npm run db:push --workspace=apps/api
         continue-on-error: true

@@ -28,6 +28,18 @@ Review current changes against MyAthan backend/frontend standards.
 - [ ] JSONB used for flexible config storage
 - [ ] Migrations generated for schema changes
 
+### OTA / Release Management
+- [ ] Releases require `hardwareType` field matching device hardware
+- [ ] `autoUpdate` defaults to `false` (opt-in per release)
+- [ ] Semver comparison is numeric (1.10.0 > 1.9.0), not string-based
+- [ ] `minVersion` constraint checked when set (skip devices below min)
+- [ ] Rollout percent checked with deterministic device hash
+- [ ] User `ota.autoUpdateEnabled` preference respected (from device config JSONB)
+- [ ] Admin force commands bypass user preference (`force: true` in payload)
+- [ ] Upload endpoint validates file size (<=2MB) and computes SHA256
+- [ ] R2 path uses `firmware/{hardwareType}/{version}/firmware.bin`
+- [ ] Signed download URLs used (time-limited)
+
 ### Security
 - [ ] No secrets in code (use environment variables)
 - [ ] API keys not logged

@@ -131,7 +131,9 @@ export interface TimetableConfig {
 }
 
 export interface OtaConfig {
+  autoUpdateEnabled: boolean;
   checkHour: number;
+  checkFrequency: 'daily' | 'weekly' | 'manual';
   lastChecked: string;
 }
 
