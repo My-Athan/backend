@@ -202,16 +202,9 @@ export async function adminRoutes(app: FastifyInstance) {
     return reply.send({ ok: true });
   });
 
-  // All routes below require admin auth
-  app.addHook('preHandler', async (request, reply) => {
-    const openPaths = ['/api/admin/auth/login', '/api/admin/auth/setup', '/api/admin/auth/logout'];
-    if (openPaths.includes(request.url)) return;
-    return adminAuth(request, reply);
-  });
-
   // ── GET /api/admin/auth/me ────────────────────────────────
-  // Protected by adminAuth preHandler above — no jwtVerify() needed in handler.
   app.get('/auth/me', {
+    preHandler: adminAuth,
     config: { rateLimit: { max: 120, timeWindow: '1 minute' } },
   }, async (request, reply) => {
     const user = (request as any).user as { id: string; email: string; role: string };
@@ -220,6 +213,7 @@ export async function adminRoutes(app: FastifyInstance) {
 
   // ── GET /api/admin/devices ────────────────────────────────
   app.get('/devices', {
+    preHandler: adminAuth,
     config: { rateLimit: { max: 60, timeWindow: '1 minute' } },
   }, async (request, reply) => {
     const { page, limit } = paginationSchema.parse(request.query);
@@ -255,6 +249,7 @@ export async function adminRoutes(app: FastifyInstance) {
 
   // ── GET /api/admin/devices/:deviceId ──────────────────────
   app.get<{ Params: { deviceId: string } }>('/devices/:deviceId', {
+    preHandler: adminAuth,
     config: { rateLimit: { max: 60, timeWindow: '1 minute' } },
   }, async (request, reply) => {
     const { deviceId } = request.params;
@@ -287,6 +282,7 @@ export async function adminRoutes(app: FastifyInstance) {
   // ── PUT /api/admin/devices/:deviceId/config ───────────────
   app.put<{ Params: { deviceId: string }; Body: Record<string, unknown> }>(
     '/devices/:deviceId/config', {
+      preHandler: adminAuth,
       config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
     }, async (request, reply) => {
       const parsed = configUpdateSchema.safeParse(request.body);
@@ -317,6 +313,7 @@ export async function adminRoutes(app: FastifyInstance) {
 
   // ── GET /api/admin/releases ───────────────────────────────
   app.get('/releases', {
+    preHandler: adminAuth,
     config: { rateLimit: { max: 60, timeWindow: '1 minute' } },
   }, async (_request, reply) => {
     const releaseList = await db
@@ -328,6 +325,7 @@ export async function adminRoutes(app: FastifyInstance) {
 
   // ── POST /api/admin/releases ──────────────────────────────
   app.post('/releases', {
+    preHandler: adminAuth,
     config: { rateLimit: { max: 20, timeWindow: '1 minute' } },
   }, async (request, reply) => {
     const parsed = releaseSchema.safeParse(request.body);
@@ -358,6 +356,7 @@ export async function adminRoutes(app: FastifyInstance) {
 
   // ── PUT /api/admin/releases/:version ──────────────────────
   app.put<{ Params: { version: string } }>('/releases/:version', {
+    preHandler: adminAuth,
     config: { rateLimit: { max: 20, timeWindow: '1 minute' } },
   }, async (request, reply) => {
     const parsed = releaseUpdateSchema.safeParse(request.body);
@@ -378,6 +377,7 @@ export async function adminRoutes(app: FastifyInstance) {
   // ── POST /api/admin/releases/upload ──────────────────────
   // Multipart firmware binary upload
   app.post('/releases/upload', {
+    preHandler: adminAuth,
     config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
   }, async (request, reply) => {
     const data = await request.file();
@@ -436,6 +436,7 @@ export async function adminRoutes(app: FastifyInstance) {
 
   // ── POST /api/admin/groups ────────────────────────────────
   app.post('/groups', {
+    preHandler: adminAuth,
     config: { rateLimit: { max: 20, timeWindow: '1 minute' } },
   }, async (request, reply) => {
     const parsed = groupSchema.safeParse(request.body);
@@ -462,6 +463,7 @@ export async function adminRoutes(app: FastifyInstance) {
 
   // ── GET /api/admin/groups — fixed N+1 with subquery ───────
   app.get('/groups', {
+    preHandler: adminAuth,
     config: { rateLimit: { max: 60, timeWindow: '1 minute' } },
   }, async (_request, reply) => {
     const groups = await db
@@ -480,6 +482,7 @@ export async function adminRoutes(app: FastifyInstance) {
 
   // ── POST /api/admin/groups/:id/sync ───────────────────────
   app.post<{ Params: { id: string } }>('/groups/:id/sync', {
+    preHandler: adminAuth,
     config: { rateLimit: { max: 20, timeWindow: '1 minute' } },
   }, async (request, reply) => {
     const parsed = syncSchema.safeParse(request.body);
@@ -499,6 +502,7 @@ export async function adminRoutes(app: FastifyInstance) {
 
   // ── GET /api/admin/stats ──────────────────────────────────
   app.get<{ Querystring: { days?: string } }>('/stats', {
+    preHandler: adminAuth,
     config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
   }, async (request, reply) => {
     const days = Math.min(90, Math.max(1, parseInt(request.query.days || '7')));

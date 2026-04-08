@@ -5,17 +5,10 @@ import { db, schema } from '../../db/index.js';
 import { adminAuth } from '../../middleware/device-auth.js';
 
 export async function analyticsRoutes(app: FastifyInstance) {
-  // Rate limiting for analytics routes (60 req/min per IP)
-  await app.register(import('@fastify/rate-limit'), {
-    max: 60,
-    timeWindow: '1 minute',
-  });
-
-  app.addHook('preHandler', adminAuth);
-
   // ── GET /api/admin/analytics/map ──────────────────────────
   // All devices with location for map visualization
   app.get('/map', {
+    preHandler: adminAuth,
     config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
   }, async (_request, reply) => {
     const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000);
@@ -76,6 +69,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
 
   app.post<{ Params: { deviceId: string } }>(
     '/devices/:deviceId/command', {
+      preHandler: adminAuth,
       config: { rateLimit: { max: 20, timeWindow: '1 minute' } },
     }, async (request, reply) => {
       const parsed = commandSchema.safeParse(request.body);
@@ -111,6 +105,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
   // Command history for a device
   app.get<{ Params: { deviceId: string } }>(
     '/devices/:deviceId/commands', {
+      preHandler: adminAuth,
       config: { rateLimit: { max: 60, timeWindow: '1 minute' } },
     }, async (request, reply) => {
       const commands = await db
