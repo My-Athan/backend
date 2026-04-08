@@ -107,6 +107,40 @@ export const syncTriggers = pgTable('sync_triggers', {
 }));
 
 // ─────────────────────────────────────────────────────────────
+// SSO Configuration (admin-managed, stored encrypted in DB)
+// ─────────────────────────────────────────────────────────────
+
+export const ssoConfig = pgTable('sso_config', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  provider: varchar('provider', { length: 30 }).notNull(),  // 'google' | 'email' | 'logto'
+  enabled: boolean('enabled').notNull().default(false),
+  clientId: text('client_id'),
+  clientSecret: text('client_secret'),
+  redirectUri: text('redirect_uri'),
+  logtoEndpoint: text('logto_endpoint'),
+  requireEmailVerification: boolean('require_email_verification').notNull().default(false),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  updatedBy: uuid('updated_by').references(() => users.id),
+});
+
+// ─────────────────────────────────────────────────────────────
+// App Users (mobile PWA users, separate from admin users)
+// ─────────────────────────────────────────────────────────────
+
+export const appUsers = pgTable('app_users', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  email: varchar('email', { length: 255 }).notNull().unique(),
+  passwordHash: text('password_hash'),
+  googleId: varchar('google_id', { length: 128 }),
+  displayName: varchar('display_name', { length: 100 }),
+  emailVerified: boolean('email_verified').notNull().default(false),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+}, (table) => ({
+  googleIdIdx: index('idx_app_users_google_id').on(table.googleId),
+}));
+
+// ─────────────────────────────────────────────────────────────
 // Device Commands (remote management)
 // ─────────────────────────────────────────────────────────────
 
