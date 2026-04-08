@@ -202,7 +202,9 @@ export async function adminRoutes(app: FastifyInstance) {
   });
 
   // ── POST /api/admin/auth/logout ───────────────────────────
-  app.post('/auth/logout', async (_request, reply) => {
+  app.post('/auth/logout', {
+    config: { rateLimit: { max: 60, timeWindow: '1 minute' } },
+  }, async (_request, reply) => {
     reply.clearCookie('admin_session', { path: '/api/admin' });
     return reply.send({ ok: true });
   });
