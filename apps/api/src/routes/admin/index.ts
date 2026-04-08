@@ -103,8 +103,15 @@ export async function adminRoutes(app: FastifyInstance) {
       { expiresIn: '24h' }
     );
 
+    reply.setCookie('admin_session', token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      path: '/api/admin',
+      maxAge: 86400,
+    });
+
     return reply.send({
-      token,
       user: { id: user.id, email: user.email, role: user.role },
       mustChangePassword: user.mustChangePassword,
     });
@@ -169,15 +176,39 @@ export async function adminRoutes(app: FastifyInstance) {
       { expiresIn: '24h' }
     );
 
+    reply.setCookie('admin_session', newToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      path: '/api/admin',
+      maxAge: 86400,
+    });
+
     return reply.send({
-      token: newToken,
       user: { id: user.id, email, role: user.role },
     });
   });
 
-  // All routes below require admin auth
+  // ── GET /api/admin/auth/me ────────────────────────────────
+  app.get('/auth/me', async (request, reply) => {
+    try {
+      const payload = await request.jwtVerify() as { id: string; email: string; role: string };
+      return reply.send({ user: { id: payload.id, email: payload.email, role: payload.role } });
+    } catch {
+      return reply.status(401).send({ error: 'Not authenticated' });
+    }
+  });
+
+  // ── POST /api/admin/auth/logout ───────────────────────────
+  app.post('/auth/logout', async (_request, reply) => {
+    reply.clearCookie('admin_session', { path: '/api/admin' });
+    return reply.send({ ok: true });
+  });
+
+  // All routes below require admin auth (auth/me and auth/logout handle their own auth)
   app.addHook('preHandler', async (request, reply) => {
-    if (request.url === '/api/admin/auth/login' || request.url === '/api/admin/auth/setup') return;
+    const openPaths = ['/api/admin/auth/login', '/api/admin/auth/setup', '/api/admin/auth/me', '/api/admin/auth/logout'];
+    if (openPaths.includes(request.url)) return;
     return adminAuth(request, reply);
   });
 
