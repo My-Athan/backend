@@ -6,6 +6,9 @@ import { deviceApi } from '../lib/device-api';
 
 const PRAYER_NAMES = ['Fajr', 'Sunrise', 'Dhuhr', 'Asr', 'Maghrib', 'Isha'];
 const PRAYER_KEYS = ['fajr', 'sunrise', 'dhuhr', 'asr', 'maghrib', 'isha'] as const;
+// Maps each prayer card index to the nextIndex value that should highlight it.
+// Sunrise (index 1) maps to 0 so it never gets highlighted as "next" independently.
+const CARD_TO_NEXT_INDEX: readonly number[] = [0, 0, 1, 2, 3, 4];
 
 /**
  * Determines whether a prayer card should be highlighted as "next".
@@ -14,13 +17,14 @@ const PRAYER_KEYS = ['fajr', 'sunrise', 'dhuhr', 'asr', 'maghrib', 'isha'] as co
 function isNextPrayerCard(key: typeof PRAYER_KEYS[number], idx: number, nextIndex: number): boolean {
   if (idx === nextIndex) return true;
   if (key === 'sunrise') return false;
-  return idx - (idx > 0 ? 1 : 0) === nextIndex;
+  return CARD_TO_NEXT_INDEX[idx] === nextIndex;
 }
 
 export function PrayerTimes() {
   const [timetable, setTimetable] = useState<PrayerTimesResponse | null>(null);
   const [status, setStatus] = useState<DeviceStatus | null>(null);
   const [loading, setLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
     async function load() {
@@ -31,8 +35,9 @@ export function PrayerTimes() {
         ]);
         setTimetable(tt);
         setStatus(st);
-      } catch {
-        // Device unreachable
+      } catch (error) {
+        console.error('Failed to load prayer times or device status:', error);
+        setErrorMessage('Could not reach device. Please check connection and try again.');
       } finally {
         setLoading(false);
       }
@@ -45,7 +50,7 @@ export function PrayerTimes() {
   }
 
   if (!timetable?.today) {
-    return <div className="text-center py-12 text-gray-500">Could not load prayer times</div>;
+    return <div className="text-center py-12 text-gray-500">{errorMessage ?? 'Could not load prayer times'}</div>;
   }
 
   const nextIdx = status?.prayer?.nextIndex ?? -1;
