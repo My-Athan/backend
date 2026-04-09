@@ -4,7 +4,6 @@
  * Admin portal uses a separate auth system (/api/admin/auth).
  */
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import rateLimit from '@fastify/rate-limit';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import bcrypt from 'bcryptjs';
@@ -104,12 +103,6 @@ async function googleTokenAuth(request: FastifyRequest, reply: FastifyReply) {
 }
 
 export async function appAuthRoutes(app: FastifyInstance) {
-  // Rate limiting for auth endpoints (static import so CodeQL can trace it)
-  await app.register(rateLimit, {
-    max: 20,
-    timeWindow: '1 minute',
-  });
-
   // ── POST /api/auth/register ───────────────────────────────
   app.post('/register', {
     config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
