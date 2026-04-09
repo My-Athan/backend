@@ -76,7 +76,7 @@ await app.register(appAuthRoutes, { prefix: '/api/auth' });
 // Health check
 app.get('/health', async () => ({
   status: 'ok',
-  version: '0.2.0',
+  version: '0.2.1',
   timestamp: new Date().toISOString(),
 }));
 
