@@ -121,21 +121,17 @@ export async function adminRoutes(app: FastifyInstance) {
 
   // ── POST /api/admin/auth/setup ───────────────────────────
   // First-login setup: replace default admin with real credentials
+  // adminAuth preHandler verifies the JWT; handler only does DB work.
   app.post('/auth/setup', {
     config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
+    preHandler: adminAuth,
   }, async (request, reply) => {
     const parsed = setupSchema.safeParse(request.body);
     if (!parsed.success) {
       return reply.status(400).send({ error: 'Invalid input', details: parsed.error.flatten() });
     }
 
-    // Verify JWT from the default admin
-    let payload: { id: string; role: string };
-    try {
-      payload = await request.jwtVerify() as { id: string; role: string };
-    } catch {
-      return reply.status(401).send({ error: 'Invalid token' });
-    }
+    const payload = (request as any).user as { id: string; role: string };
 
     // Verify the user must change password
     const [user] = await db
