@@ -11,8 +11,8 @@ import { uploadFirmware } from '../../services/audio-catalog.js';
 // ── Zod Schemas ─────────────────────────────────────────────
 
 const loginSchema = z.object({
-  email: z.string().email().max(255),
-  password: z.string().min(8).max(128),
+  email: z.string().min(1).max(255),
+  password: z.string().min(1).max(128),
 });
 
 const setupSchema = z.object({
@@ -121,21 +121,17 @@ export async function adminRoutes(app: FastifyInstance) {
 
   // ── POST /api/admin/auth/setup ───────────────────────────
   // First-login setup: replace default admin with real credentials
+  // adminAuth preHandler verifies the JWT; handler only does DB work.
   app.post('/auth/setup', {
     config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
+    preHandler: adminAuth,
   }, async (request, reply) => {
     const parsed = setupSchema.safeParse(request.body);
     if (!parsed.success) {
       return reply.status(400).send({ error: 'Invalid input', details: parsed.error.flatten() });
     }
 
-    // Verify JWT from the default admin
-    let payload: { id: string; role: string };
-    try {
-      payload = await request.jwtVerify() as { id: string; role: string };
-    } catch {
-      return reply.status(401).send({ error: 'Invalid token' });
-    }
+    const payload = (request as any).user as { id: string; role: string };
 
     // Verify the user must change password
     const [user] = await db
@@ -544,5 +540,72 @@ export async function adminRoutes(app: FastifyInstance) {
       firmwareVersions: versionDist,
       dailyStats: dailyAgg,
     });
+  });
+
+  // ── GET /api/admin/sso-config ─────────────────────────────
+  app.get('/sso-config', {
+    preHandler: adminAuth,
+    config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
+  }, async (_request, reply) => {
+    const configs = await db.select({
+      id: schema.ssoConfig.id,
+      provider: schema.ssoConfig.provider,
+      enabled: schema.ssoConfig.enabled,
+      clientId: schema.ssoConfig.clientId,
+      redirectUri: schema.ssoConfig.redirectUri,
+      logtoEndpoint: schema.ssoConfig.logtoEndpoint,
+      requireEmailVerification: schema.ssoConfig.requireEmailVerification,
+      updatedAt: schema.ssoConfig.updatedAt,
+    }).from(schema.ssoConfig);
+
+    // Never expose clientSecret in GET response
+    return reply.send({ configs });
+  });
+
+  // ── PUT /api/admin/sso-config/:provider ───────────────────
+  const ssoConfigSchema = z.object({
+    enabled: z.boolean().optional(),
+    clientId: z.string().max(512).optional(),
+    clientSecret: z.string().max(512).optional(),
+    redirectUri: z.string().url().optional().or(z.literal('')),
+    logtoEndpoint: z.string().url().optional().or(z.literal('')),
+    requireEmailVerification: z.boolean().optional(),
+  });
+
+  app.put<{ Params: { provider: string } }>('/sso-config/:provider', {
+    preHandler: adminAuth,
+    config: { rateLimit: { max: 20, timeWindow: '1 minute' } },
+  }, async (request, reply) => {
+    const { provider } = request.params;
+    if (!['google', 'email', 'logto'].includes(provider)) {
+      return reply.status(400).send({ error: 'Invalid provider. Must be: google, email, logto' });
+    }
+
+    const parsed = ssoConfigSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: 'Invalid input', details: parsed.error.flatten() });
+    }
+
+    const adminUser = (request as any).user;
+    const data = parsed.data;
+
+    const [existing] = await db.select({ id: schema.ssoConfig.id })
+      .from(schema.ssoConfig).where(eq(schema.ssoConfig.provider, provider)).limit(1);
+
+    const update: Record<string, unknown> = { updatedAt: new Date(), updatedBy: adminUser.id };
+    if (data.enabled !== undefined) update.enabled = data.enabled;
+    if (data.clientId !== undefined) update.clientId = data.clientId;
+    if (data.clientSecret !== undefined) update.clientSecret = data.clientSecret;
+    if (data.redirectUri !== undefined) update.redirectUri = data.redirectUri || null;
+    if (data.logtoEndpoint !== undefined) update.logtoEndpoint = data.logtoEndpoint || null;
+    if (data.requireEmailVerification !== undefined) update.requireEmailVerification = data.requireEmailVerification;
+
+    if (existing) {
+      await db.update(schema.ssoConfig).set(update).where(eq(schema.ssoConfig.provider, provider));
+    } else {
+      await db.insert(schema.ssoConfig).values({ provider, ...update } as any);
+    }
+
+    return reply.send({ ok: true });
   });
 }

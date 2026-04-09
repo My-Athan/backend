@@ -15,7 +15,8 @@ services:
       - R2_SECRET_KEY=${R2_SECRET_KEY}
       - R2_BUCKET=${R2_BUCKET:-myathan}
     depends_on:
-      - db
+      db:
+        condition: service_healthy
 
   db:
     image: postgres:16-alpine
@@ -27,6 +28,54 @@ services:
       - POSTGRES_DB=myathan
     volumes:
       - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U myathan"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ── Logto — Open-Source Identity Platform ──────────────────
+  # Manages SSO: Google OAuth, email/password, social logins.
+  # Admin console: http://localhost:3002
+  # Logto API: http://localhost:3001
+  #
+  # On first run, follow the setup wizard at http://localhost:3002
+  # Configure Google as a social connector, then point the admin
+  # SSO Config page to http://logto:3001
+  logto:
+    image: svhd/logto:latest
+    ports:
+      - "3001:3001"  # Logto API / OIDC endpoint
+      - "3002:3002"  # Logto Admin Console
+    environment:
+      - TRUST_PROXY_HEADER=1
+      - DB_URL=postgresql://logto:logto@logto-db:5432/logto
+      # Endpoint shown to clients (public-facing URL)
+      - ENDPOINT=${LOGTO_ENDPOINT:-http://localhost:3001}
+      - ADMIN_ENDPOINT=${LOGTO_ADMIN_ENDPOINT:-http://localhost:3002}
+    depends_on:
+      logto-db:
+        condition: service_healthy
+    entrypoint: ["sh", "-c", "npx @logto/cli db seed --db-url postgresql://logto:logto@logto-db:5432/logto; node /etc/logto/core/dist/index.js"]
+    profiles:
+      - sso  # Start with: docker compose --profile sso up
+
+  logto-db:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_USER=logto
+      - POSTGRES_PASSWORD=logto
+      - POSTGRES_DB=logto
+    volumes:
+      - logto-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U logto"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    profiles:
+      - sso
 
 volumes:
   pgdata:
+  logto-pgdata:

@@ -8,6 +8,7 @@ import crypto from 'node:crypto';
 import { deviceRoutes } from './routes/device/index.js';
 import { adminRoutes } from './routes/admin/index.js';
 import { analyticsRoutes } from './routes/admin/analytics.js';
+import { appAuthRoutes } from './routes/auth/index.js';
 
 // ── Environment validation ──────────────────────────────────
 const requiredEnv = ['DATABASE_URL'];
@@ -70,6 +71,7 @@ await app.register(rateLimit, {
 await app.register(deviceRoutes, { prefix: '/api/device' });
 await app.register(adminRoutes, { prefix: '/api/admin' });
 await app.register(analyticsRoutes, { prefix: '/api/admin/analytics' });
+await app.register(appAuthRoutes, { prefix: '/api/auth' });
 
 // Health check
 app.get('/health', async () => ({

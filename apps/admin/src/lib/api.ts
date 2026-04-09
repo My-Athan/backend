@@ -11,26 +11,30 @@ function buildQuery(params: Record<string, string | number | boolean | null | un
   return searchParams.toString();
 }
 
-async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+async function request<T>(method: string, path: string, body?: unknown, opts?: { skipAuthRedirect?: boolean }): Promise<T> {
+  const headers: Record<string, string> = {};
+  if (body) headers['Content-Type'] = 'application/json';
+
   const res = await fetch(`${BASE}${path}`, {
     method,
     credentials: 'include',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers,
     body: body ? JSON.stringify(body) : undefined,
   });
-  if (res.status === 401) {
+  if (res.status === 401 && !opts?.skipAuthRedirect) {
     window.location.href = '/login';
     throw new Error('Unauthorized');
   }
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(err.error || `${res.status} ${res.statusText}`);
+  }
   return res.json();
 }
 
 export const api = {
   login: (email: string, password: string) =>
-    request<{ user: { id: string; email: string; role: string }; mustChangePassword: boolean }>('POST', '/api/admin/auth/login', { email, password }),
+    request<{ user: { id: string; email: string; role: string }; mustChangePassword: boolean }>('POST', '/api/admin/auth/login', { email, password }, { skipAuthRedirect: true }),
   setup: (email: string, password: string) =>
     request<{ user: { id: string; email: string; role: string } }>('POST', '/api/admin/auth/setup', { email, password }),
   me: () =>
@@ -80,4 +84,15 @@ export const api = {
       command: 'ota_update',
       payload: { version, force: true },
     }),
+  getSSOConfig: () =>
+    request<{ configs: any[] }>('GET', '/api/admin/sso-config'),
+  updateSSOConfig: (provider: string, data: {
+    enabled?: boolean;
+    clientId?: string;
+    clientSecret?: string;
+    redirectUri?: string;
+    logtoEndpoint?: string;
+    requireEmailVerification?: boolean;
+  }) =>
+    request<{ ok: boolean }>('PUT', `/api/admin/sso-config/${encodeURIComponent(provider)}`, data),
 };
