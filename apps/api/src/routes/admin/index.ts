@@ -4,6 +4,7 @@ import { z } from 'zod';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import multipart from '@fastify/multipart';
+import rateLimit from '@fastify/rate-limit';
 import { db, schema } from '../../db/index.js';
 import { adminAuth } from '../../middleware/device-auth.js';
 import { uploadFirmware } from '../../services/audio-catalog.js';
@@ -75,8 +76,14 @@ export async function adminRoutes(app: FastifyInstance) {
   // Register multipart support for file uploads
   await app.register(multipart, { limits: { fileSize: 2 * 1024 * 1024 } });
 
+  // All routes are defined inside a scoped plugin where @fastify/rate-limit is
+  // explicitly registered. This makes rate-limiting unambiguous to static
+  // analysis tools (CodeQL) which trace scope ownership.
+  await app.register(async function rateLimitedAdminRoutes(scoped: FastifyInstance) {
+    await scoped.register(rateLimit, { max: 100, timeWindow: '1 minute' });
+
   // ── POST /api/admin/auth/login ────────────────────────────
-  app.post('/auth/login', {
+  scoped.post('/auth/login', {
     config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
   }, async (request, reply) => {
     const parsed = loginSchema.safeParse(request.body);
@@ -122,7 +129,7 @@ export async function adminRoutes(app: FastifyInstance) {
   // ── POST /api/admin/auth/setup ───────────────────────────
   // First-login setup: replace default admin with real credentials
   // adminAuth preHandler verifies the JWT; handler only does DB work.
-  app.post('/auth/setup', {
+  scoped.post('/auth/setup', {
     config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
     preHandler: adminAuth,
   }, async (request, reply) => {
@@ -191,7 +198,7 @@ export async function adminRoutes(app: FastifyInstance) {
 
   // ── POST /api/admin/auth/logout ───────────────────────────
   // Open (no auth required) — just clears the session cookie.
-  app.post('/auth/logout', {
+  scoped.post('/auth/logout', {
     config: { rateLimit: { max: 60, timeWindow: '1 minute' } },
   }, async (_request, reply) => {
     reply.clearCookie('admin_session', { path: '/api/admin' });
@@ -199,7 +206,7 @@ export async function adminRoutes(app: FastifyInstance) {
   });
 
   // ── GET /api/admin/auth/me ────────────────────────────────
-  app.get('/auth/me', {
+  scoped.get('/auth/me', {
     preHandler: adminAuth,
     config: { rateLimit: { max: 120, timeWindow: '1 minute' } },
   }, async (request, reply) => {
@@ -208,7 +215,7 @@ export async function adminRoutes(app: FastifyInstance) {
   });
 
   // ── GET /api/admin/devices ────────────────────────────────
-  app.get('/devices', {
+  scoped.get('/devices', {
     preHandler: adminAuth,
     config: { rateLimit: { max: 60, timeWindow: '1 minute' } },
   }, async (request, reply) => {
@@ -244,7 +251,7 @@ export async function adminRoutes(app: FastifyInstance) {
   });
 
   // ── GET /api/admin/devices/:deviceId ──────────────────────
-  app.get<{ Params: { deviceId: string } }>('/devices/:deviceId', {
+  scoped.get<{ Params: { deviceId: string } }>('/devices/:deviceId', {
     preHandler: adminAuth,
     config: { rateLimit: { max: 60, timeWindow: '1 minute' } },
   }, async (request, reply) => {
@@ -276,7 +283,7 @@ export async function adminRoutes(app: FastifyInstance) {
   });
 
   // ── PUT /api/admin/devices/:deviceId/config ───────────────
-  app.put<{ Params: { deviceId: string }; Body: Record<string, unknown> }>(
+  scoped.put<{ Params: { deviceId: string }; Body: Record<string, unknown> }>(
     '/devices/:deviceId/config', {
       preHandler: adminAuth,
       config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
@@ -308,7 +315,7 @@ export async function adminRoutes(app: FastifyInstance) {
   );
 
   // ── GET /api/admin/releases ───────────────────────────────
-  app.get('/releases', {
+  scoped.get('/releases', {
     preHandler: adminAuth,
     config: { rateLimit: { max: 60, timeWindow: '1 minute' } },
   }, async (_request, reply) => {
@@ -320,7 +327,7 @@ export async function adminRoutes(app: FastifyInstance) {
   });
 
   // ── POST /api/admin/releases ──────────────────────────────
-  app.post('/releases', {
+  scoped.post('/releases', {
     preHandler: adminAuth,
     config: { rateLimit: { max: 20, timeWindow: '1 minute' } },
   }, async (request, reply) => {
@@ -351,7 +358,7 @@ export async function adminRoutes(app: FastifyInstance) {
   });
 
   // ── PUT /api/admin/releases/:version ──────────────────────
-  app.put<{ Params: { version: string } }>('/releases/:version', {
+  scoped.put<{ Params: { version: string } }>('/releases/:version', {
     preHandler: adminAuth,
     config: { rateLimit: { max: 20, timeWindow: '1 minute' } },
   }, async (request, reply) => {
@@ -372,7 +379,7 @@ export async function adminRoutes(app: FastifyInstance) {
 
   // ── POST /api/admin/releases/upload ──────────────────────
   // Multipart firmware binary upload
-  app.post('/releases/upload', {
+  scoped.post('/releases/upload', {
     preHandler: adminAuth,
     config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
   }, async (request, reply) => {
@@ -431,7 +438,7 @@ export async function adminRoutes(app: FastifyInstance) {
   });
 
   // ── POST /api/admin/groups ────────────────────────────────
-  app.post('/groups', {
+  scoped.post('/groups', {
     preHandler: adminAuth,
     config: { rateLimit: { max: 20, timeWindow: '1 minute' } },
   }, async (request, reply) => {
@@ -458,7 +465,7 @@ export async function adminRoutes(app: FastifyInstance) {
   });
 
   // ── GET /api/admin/groups — fixed N+1 with subquery ───────
-  app.get('/groups', {
+  scoped.get('/groups', {
     preHandler: adminAuth,
     config: { rateLimit: { max: 60, timeWindow: '1 minute' } },
   }, async (_request, reply) => {
@@ -477,7 +484,7 @@ export async function adminRoutes(app: FastifyInstance) {
   });
 
   // ── POST /api/admin/groups/:id/sync ───────────────────────
-  app.post<{ Params: { id: string } }>('/groups/:id/sync', {
+  scoped.post<{ Params: { id: string } }>('/groups/:id/sync', {
     preHandler: adminAuth,
     config: { rateLimit: { max: 20, timeWindow: '1 minute' } },
   }, async (request, reply) => {
@@ -497,7 +504,7 @@ export async function adminRoutes(app: FastifyInstance) {
   });
 
   // ── GET /api/admin/stats ──────────────────────────────────
-  app.get<{ Querystring: { days?: string } }>('/stats', {
+  scoped.get<{ Querystring: { days?: string } }>('/stats', {
     preHandler: adminAuth,
     config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
   }, async (request, reply) => {
@@ -543,7 +550,7 @@ export async function adminRoutes(app: FastifyInstance) {
   });
 
   // ── GET /api/admin/sso-config ─────────────────────────────
-  app.get('/sso-config', {
+  scoped.get('/sso-config', {
     preHandler: adminAuth,
     config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
   }, async (_request, reply) => {
@@ -572,7 +579,7 @@ export async function adminRoutes(app: FastifyInstance) {
     requireEmailVerification: z.boolean().optional(),
   });
 
-  app.put<{ Params: { provider: string } }>('/sso-config/:provider', {
+  scoped.put<{ Params: { provider: string } }>('/sso-config/:provider', {
     preHandler: adminAuth,
     config: { rateLimit: { max: 20, timeWindow: '1 minute' } },
   }, async (request, reply) => {
@@ -608,4 +615,5 @@ export async function adminRoutes(app: FastifyInstance) {
 
     return reply.send({ ok: true });
   });
+  }); // end rateLimitedAdminRoutes
 }

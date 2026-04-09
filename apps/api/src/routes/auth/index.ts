@@ -3,7 +3,7 @@
  * Supports: Email/password + Google OAuth for PWA users.
  * Admin portal uses a separate auth system (/api/admin/auth).
  */
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyReply } from 'fastify';
 import rateLimit from '@fastify/rate-limit';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
@@ -24,17 +24,21 @@ const loginSchema = z.object({
 
 // ── Helpers ──────────────────────────────────────────────────
 
-function issueAppToken(app: FastifyInstance, userId: string, email: string): string {
-  return app.jwt.sign({ id: userId, email, type: 'app' }, { expiresIn: '30d' });
+function getDisplayName(displayName: string | undefined, email: string): string {
+  return displayName || email.split('@')[0];
 }
 
-function setCookieForApp(reply: any, token: string) {
+function issueAppToken(app: FastifyInstance, userId: string, email: string): string {
+  return app.jwt.sign({ id: userId, email, type: 'app' }, { expiresIn: '7d' });
+}
+
+function setCookieForApp(reply: FastifyReply, token: string) {
   reply.setCookie('app_session', token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax',
     path: '/api/auth',
-    maxAge: 30 * 86400,
+    maxAge: 7 * 86400,
   });
 }
 
@@ -73,7 +77,7 @@ export async function appAuthRoutes(app: FastifyInstance) {
       const [user] = await db.insert(schema.appUsers).values({
         email,
         passwordHash,
-        displayName: displayName || email.split('@')[0],
+        displayName: getDisplayName(displayName, email),
         emailVerified: !(emailConfig?.requireEmailVerification),
       }).returning({ id: schema.appUsers.id, email: schema.appUsers.email });
 
@@ -81,7 +85,7 @@ export async function appAuthRoutes(app: FastifyInstance) {
       setCookieForApp(reply, token);
 
       return reply.status(201).send({
-        user: { id: user.id, email: user.email, displayName: displayName || email.split('@')[0] },
+        user: { id: user.id, email: user.email, displayName: getDisplayName(displayName, email) },
         token,
       });
     });
@@ -143,17 +147,17 @@ export async function appAuthRoutes(app: FastifyInstance) {
         }
         userId = existing.id;
         userEmail = existing.email;
-        displayName = existing.displayName || name || email.split('@')[0];
+        displayName = existing.displayName || getDisplayName(name, email);
       } else {
         const [newUser] = await db.insert(schema.appUsers).values({
           email,
           googleId: sub,
-          displayName: name || email.split('@')[0],
+          displayName: getDisplayName(name, email),
           emailVerified: true,
         }).returning({ id: schema.appUsers.id, email: schema.appUsers.email, displayName: schema.appUsers.displayName });
         userId = newUser.id;
         userEmail = newUser.email;
-        displayName = newUser.displayName || email.split('@')[0];
+        displayName = getDisplayName(newUser.displayName, email);
       }
 
       const token = issueAppToken(app, userId, userEmail);
