@@ -413,13 +413,22 @@ export async function appUserAdminRoutes(app: FastifyInstance) {
   });
 }
 
-// 16-char password from an unambiguous alphabet (no 0/O/1/l/I).
+// Temp password from an unambiguous alphabet (no 0/O/1/l/I).
+// Uses rejection sampling: any random byte outside the largest
+// multiple of `alphabet.length` below 256 is discarded, so every
+// character has exactly equal probability. With a 56-char alphabet
+// the cutoff is 224 and the expected reject rate is (256-224)/256 ≈ 12.5%.
 function generateTempPassword(length: number): string {
   const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
-  const bytes = crypto.randomBytes(length);
+  const cutoff = 256 - (256 % alphabet.length);
   let out = '';
-  for (let i = 0; i < length; i++) {
-    out += alphabet[bytes[i] % alphabet.length];
+  while (out.length < length) {
+    const buf = crypto.randomBytes(length - out.length);
+    for (let i = 0; i < buf.length; i++) {
+      if (buf[i] < cutoff) {
+        out += alphabet[buf[i] % alphabet.length];
+      }
+    }
   }
   return out;
 }
