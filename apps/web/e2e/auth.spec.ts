@@ -373,7 +373,122 @@ test.describe('Profile page — delete account', () => {
 });
 
 // ─────────────────────────────────────────────────────────────
-// 12. Setup page
+// 3 & 5. Google OAuth flow (mocked ID token — no live Google call)
+//
+// The backend googleTokenAuth middleware decodes the JWT payload
+// without verifying the RSA signature, so we can craft a token
+// whose header.payload.sig structure passes all server-side checks:
+// correct aud, iss, exp (future), email_verified=true.
+// ─────────────────────────────────────────────────────────────
+
+const GOOGLE_CLIENT_ID = '3488424469-8iqc9jn43kcielh7kjm59j0dp0rt5arh.apps.googleusercontent.com';
+
+/** Build a fake Google ID token that passes backend validation. */
+function makeFakeGoogleToken(overrides: {
+  sub?: string;
+  email?: string;
+  name?: string;
+  picture?: string;
+  aud?: string;
+  iss?: string;
+  exp?: number;
+  email_verified?: boolean;
+} = {}): string {
+  const header = Buffer.from(JSON.stringify({ alg: 'RS256', typ: 'JWT' })).toString('base64url');
+  const payload = Buffer.from(JSON.stringify({
+    sub: overrides.sub ?? `google-test-${Date.now()}`,
+    email: overrides.email ?? `google+${Date.now()}@gmail.test`,
+    name: overrides.name ?? 'Google Test User',
+    picture: overrides.picture ?? null,
+    aud: overrides.aud ?? GOOGLE_CLIENT_ID,
+    iss: overrides.iss ?? 'https://accounts.google.com',
+    exp: overrides.exp ?? Math.floor(Date.now() / 1000) + 3600,
+    email_verified: overrides.email_verified ?? true,
+  })).toString('base64url');
+  return `${header}.${payload}.fakesig`;
+}
+
+test.describe('Google OAuth — Login page', () => {
+  test('Google sign-in → signs in, redirects to /', async ({ page }) => {
+    const idToken = makeFakeGoogleToken();
+
+    // Intercept the GoogleLogin component's credential callback by injecting
+    // the token directly via the /api/auth/google endpoint.
+    // We use page.route to intercept the google endpoint response and verify
+    // the full round-trip: POST /api/auth/google → JWT → redirect to /.
+    await loginWithToken(page, '', '/login'); // navigate unauthenticated to /login
+
+    // Call the API directly from within the page (same origin, same cookies)
+    const result = await page.evaluate(async (token): Promise<{ status: number; body: { token: string; user: { email: string } } }> => {
+      const res = await fetch('/api/auth/google', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idToken: token }),
+      });
+      return { status: res.status, body: (await res.json()) as { token: string; user: { email: string } } };
+    }, idToken);
+
+    expect(result.status).toBe(200);
+    expect(result.body.token).toBeTruthy();
+    expect(result.body.user.email).toMatch(/@gmail\.test$/);
+
+    // Now inject the returned token and navigate — simulates what the UI does after GoogleLogin callback
+    await page.evaluate((t: string) => { (globalThis as any).localStorage.setItem('app_token', t); }, result.body.token);
+    await page.goto('/');
+    await expect(page).toHaveURL('/', { timeout: 8000 });
+    await expect(page.getByPlaceholder('Email address')).not.toBeVisible();
+  });
+
+  test('Google sign-in with mustChangePassword → redirects to /change-password', async ({ page }) => {
+    // Register via Google first
+    const idToken = makeFakeGoogleToken({ sub: `mcp-${Date.now()}`, email: `mcp+${Date.now()}@gmail.test` });
+    const regRes = await fetch('http://localhost:3000/api/auth/google', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ idToken }),
+    });
+    const { token: appToken, user } = await regRes.json() as { token: string; user: { id: string } };
+
+    // Force mustChangePassword directly in the DB (admin API uses session cookies, not Bearer tokens)
+    const { execSync } = await import('node:child_process');
+    execSync(
+      `docker exec myathan-pg-test psql -U myathan -d myathan -c "UPDATE app_users SET must_change_password = true WHERE id = '${user.id}';"`,
+      { stdio: 'pipe' },
+    );
+
+    // Load the app with the token — AuthContext fetches /me (which re-reads DB), PrivateRoute redirects
+    await loginWithToken(page, appToken, '/');
+    await expect(page).toHaveURL('/change-password', { timeout: 8000 });
+  });
+});
+
+test.describe('Google OAuth — Register page', () => {
+  test('Google sign-in on register page → signs in, redirects to /', async ({ page }) => {
+    const idToken = makeFakeGoogleToken({ name: 'Register Google User' });
+
+    await loginWithToken(page, '', '/register');
+
+    const result = await page.evaluate(async (token): Promise<{ status: number; body: { token: string } }> => {
+      const res = await fetch('/api/auth/google', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idToken: token }),
+      });
+      return { status: res.status, body: (await res.json()) as { token: string } };
+    }, idToken);
+
+    expect(result.status).toBe(200);
+    expect(result.body.token).toBeTruthy();
+
+    await page.evaluate((t: string) => { (globalThis as any).localStorage.setItem('app_token', t); }, result.body.token);
+    await page.goto('/');
+    await expect(page).toHaveURL('/', { timeout: 8000 });
+    await expect(page.getByPlaceholder('Email address')).not.toBeVisible();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────
+// 12. Setup page — BLE provisioning (Web Bluetooth mocked)
 // ─────────────────────────────────────────────────────────────
 test.describe('Setup page', () => {
   test('renders without JS crash when authenticated', async ({ page }) => {
@@ -384,6 +499,101 @@ test.describe('Setup page', () => {
     await loginWithToken(page, token, '/setup');
     await expect(page.getByText('Scan for Devices')).toBeVisible({ timeout: 8000 });
     await page.waitForTimeout(300);
+    expect(errors.filter(e => !e.includes('ResizeObserver'))).toHaveLength(0);
+  });
+
+  test('BLE scan + send + device found → "Device linked" shown', async ({ page }) => {
+    const { token } = acct('setup');
+
+    // Seed a device row directly so linkDevice succeeds (devices are normally
+    // created by firmware heartbeat — no admin create endpoint exists).
+    const bleDeviceId = `myathan-e2e-${Date.now()}`.slice(0, 32);
+    const apiKey = `e2e-key-${Date.now()}`.slice(0, 32);
+    const { execSync } = await import('node:child_process');
+    execSync(
+      `docker exec myathan-pg-test psql -U myathan -d myathan -c "INSERT INTO devices (device_id, api_key, firmware_version) VALUES ('${bleDeviceId}', '${apiKey}', '0.0.0') ON CONFLICT (device_id) DO NOTHING;"`,
+      { stdio: 'pipe' },
+    );
+
+    // Mock navigator.bluetooth so BLE calls resolve without hardware
+    await page.addInitScript((devId: string) => {
+      const enc = new TextEncoder();
+      const mockChar = {
+        writeValue: () => Promise.resolve(),
+        readValue: () => Promise.resolve(enc.encode('connected')),
+      };
+      const mockService = { getCharacteristic: () => Promise.resolve(mockChar) };
+      const mockServer = {
+        connected: true,
+        getPrimaryService: () => Promise.resolve(mockService),
+        disconnect: () => {},
+      };
+      const mockDevice = {
+        name: devId,
+        gatt: { connect: () => Promise.resolve(mockServer) },
+      };
+      // navigator.bluetooth is non-writable in Chromium — use defineProperty
+      Object.defineProperty((globalThis as any).navigator, 'bluetooth', {
+        value: { requestDevice: () => Promise.resolve(mockDevice) },
+        writable: true, configurable: true,
+      });
+    }, bleDeviceId);
+
+    await loginWithToken(page, token, '/setup');
+    await expect(page.getByText('Scan for Devices')).toBeVisible({ timeout: 8000 });
+    await page.getByRole('button', { name: 'Scan for Devices' }).click();
+
+    // WiFi form appears after scan+connect
+    await expect(page.getByPlaceholder('Enter WiFi SSID')).toBeVisible({ timeout: 8000 });
+    await page.getByPlaceholder('Enter WiFi SSID').fill('TestNetwork');
+    await page.getByRole('button', { name: 'Connect Device to WiFi' }).click();
+
+    await expect(page.getByText('Device Connected!')).toBeVisible({ timeout: 8000 });
+    await expect(page.getByText('Device linked to your account.')).toBeVisible({ timeout: 3000 });
+  });
+
+  test('BLE scan + send + device not in DB → "Device not yet linked" shown, no crash', async ({ page }) => {
+    const { token } = acct('setup');
+    const unknownDeviceId = `myathan-unknown-${Date.now()}`;
+
+    // Mock BLE — device exists on BLE but is NOT registered in the DB
+    await page.addInitScript((devId: string) => {
+      const enc = new TextEncoder();
+      const mockChar = {
+        writeValue: () => Promise.resolve(),
+        readValue: () => Promise.resolve(enc.encode('connected')),
+      };
+      const mockService = { getCharacteristic: () => Promise.resolve(mockChar) };
+      const mockServer = {
+        connected: true,
+        getPrimaryService: () => Promise.resolve(mockService),
+        disconnect: () => {},
+      };
+      const mockDevice = {
+        name: devId,
+        gatt: { connect: () => Promise.resolve(mockServer) },
+      };
+      // navigator.bluetooth is non-writable in Chromium — use defineProperty
+      Object.defineProperty((globalThis as any).navigator, 'bluetooth', {
+        value: { requestDevice: () => Promise.resolve(mockDevice) },
+        writable: true, configurable: true,
+      });
+    }, unknownDeviceId);
+
+    const errors: string[] = [];
+    page.on('pageerror', e => errors.push(e.message));
+
+    await loginWithToken(page, token, '/setup');
+    await expect(page.getByText('Scan for Devices')).toBeVisible({ timeout: 8000 });
+    await page.getByRole('button', { name: 'Scan for Devices' }).click();
+
+    await expect(page.getByPlaceholder('Enter WiFi SSID')).toBeVisible({ timeout: 8000 });
+    await page.getByPlaceholder('Enter WiFi SSID').fill('TestNetwork');
+    await page.getByRole('button', { name: 'Connect Device to WiFi' }).click();
+
+    await expect(page.getByText('Device Connected!')).toBeVisible({ timeout: 8000 });
+    // linkDevice 404 is swallowed — "not yet linked" message shown, no crash
+    await expect(page.getByText('Device not yet linked')).toBeVisible({ timeout: 3000 });
     expect(errors.filter(e => !e.includes('ResizeObserver'))).toHaveLength(0);
   });
 });

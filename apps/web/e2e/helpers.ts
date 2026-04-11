@@ -80,7 +80,7 @@ export async function adminLogin(): Promise<string> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       email: 'admin@myathan.local',
-      password: 'Admin1234!',
+      password: 'admin@MyAthan',
     }),
   });
   if (!res.ok) throw new Error(`Admin login failed: ${await res.text()}`);
