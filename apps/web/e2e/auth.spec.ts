@@ -449,12 +449,13 @@ test.describe('Google OAuth — Login page', () => {
     });
     const { token: appToken, user } = await regRes.json() as { token: string; user: { id: string } };
 
-    // Force mustChangePassword directly in the DB (admin API uses session cookies, not Bearer tokens)
-    const { execSync } = await import('node:child_process');
-    execSync(
-      `docker exec myathan-pg-test psql -U myathan -d myathan -c "UPDATE app_users SET must_change_password = true WHERE id = '${user.id}';"`,
-      { stdio: 'pipe' },
-    );
+    // Force mustChangePassword directly in the DB (admin API uses session cookies, not Bearer tokens).
+    // spawnSync with an args array avoids shell interpolation (CodeQL CWE-78).
+    const { spawnSync } = await import('node:child_process');
+    spawnSync('docker', [
+      'exec', 'myathan-pg-test', 'psql', '-U', 'myathan', '-d', 'myathan',
+      '-c', `UPDATE app_users SET must_change_password = true WHERE id = '${user.id}';`,
+    ], { stdio: 'pipe' });
 
     // Load the app with the token — AuthContext fetches /me (which re-reads DB), PrivateRoute redirects
     await loginWithToken(page, appToken, '/');
@@ -507,13 +508,14 @@ test.describe('Setup page', () => {
 
     // Seed a device row directly so linkDevice succeeds (devices are normally
     // created by firmware heartbeat — no admin create endpoint exists).
+    // spawnSync with an args array avoids shell interpolation (CodeQL CWE-78).
     const bleDeviceId = `myathan-e2e-${Date.now()}`.slice(0, 32);
     const apiKey = `e2e-key-${Date.now()}`.slice(0, 32);
-    const { execSync } = await import('node:child_process');
-    execSync(
-      `docker exec myathan-pg-test psql -U myathan -d myathan -c "INSERT INTO devices (device_id, api_key, firmware_version) VALUES ('${bleDeviceId}', '${apiKey}', '0.0.0') ON CONFLICT (device_id) DO NOTHING;"`,
-      { stdio: 'pipe' },
-    );
+    const { spawnSync } = await import('node:child_process');
+    spawnSync('docker', [
+      'exec', 'myathan-pg-test', 'psql', '-U', 'myathan', '-d', 'myathan',
+      '-c', `INSERT INTO devices (device_id, api_key, firmware_version) VALUES ('${bleDeviceId}', '${apiKey}', '0.0.0') ON CONFLICT (device_id) DO NOTHING;`,
+    ], { stdio: 'pipe' });
 
     // Mock navigator.bluetooth so BLE calls resolve without hardware
     await page.addInitScript((devId: string) => {
