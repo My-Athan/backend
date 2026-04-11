@@ -3,6 +3,15 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { authApi } from '../lib/auth-api';
 
+function isSafeUrl(url: string): boolean {
+  try {
+    const { protocol } = new URL(url);
+    return protocol === 'https:' || protocol === 'http:';
+  } catch {
+    return false;
+  }
+}
+
 const LANGUAGES = [
   { value: 'en', label: 'English' },
   { value: 'ar', label: 'العربية' },
@@ -119,7 +128,7 @@ export function Profile() {
     <div className="space-y-4">
       {/* Avatar + name */}
       <div className="bg-white rounded-2xl p-6 flex flex-col items-center gap-3">
-        {avatarUrl && !editMode ? (
+        {avatarUrl && !editMode && isSafeUrl(avatarUrl) ? (
           <img
             src={avatarUrl}
             alt={user.displayName ?? user.email}
@@ -134,7 +143,7 @@ export function Profile() {
         ) : null}
         <div
           className="w-20 h-20 rounded-full bg-emerald-700 flex items-center justify-center text-white text-2xl font-bold"
-          style={{ display: avatarUrl && !editMode ? 'none' : 'flex' }}
+          style={{ display: avatarUrl && !editMode && isSafeUrl(avatarUrl) ? 'none' : 'flex' }}
         >
           {initials}
         </div>
