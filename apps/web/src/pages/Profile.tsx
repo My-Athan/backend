@@ -72,7 +72,7 @@ export function Profile() {
     .slice(0, 2);
 
   // ── Profile save ────────────────────────────────────────────
-  async function handleSaveProfile(e: React.FormEvent) {
+  async function handleSaveProfile(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setProfileError('');
     setSaving(true);
@@ -84,8 +84,8 @@ export function Profile() {
       });
       await refresh();
       setEditMode(false);
-    } catch (err: any) {
-      setProfileError(err.message || 'Failed to save profile');
+    } catch (e: unknown) {
+      setProfileError(e instanceof Error ? e.message : 'Failed to save profile');
     } finally {
       setSaving(false);
     }
@@ -107,8 +107,8 @@ export function Profile() {
     try {
       const res = await authApi.getDevices();
       setDevices(res.devices as LinkedDevice[]);
-    } catch (err: any) {
-      setDevicesError(err.message || 'Failed to load devices');
+    } catch (e: unknown) {
+      setDevicesError(e instanceof Error ? e.message : 'Failed to load devices');
     } finally {
       setDevicesLoading(false);
     }
@@ -120,8 +120,8 @@ export function Profile() {
     try {
       await authApi.unlinkDevice(deviceId);
       setDevices(d => (d ?? []).filter(dev => dev.deviceId !== deviceId));
-    } catch (err: any) {
-      setUnlinkError(err.message || 'Failed to unlink device');
+    } catch (e: unknown) {
+      setUnlinkError(e instanceof Error ? e.message : 'Failed to unlink device');
     } finally {
       setUnlinkingId(null);
     }
@@ -135,8 +135,8 @@ export function Profile() {
       await authApi.deleteAccount();
       await signOut();
       navigate('/login', { replace: true });
-    } catch (err: any) {
-      setDeleteError(err.message || 'Failed to delete account');
+    } catch (e: unknown) {
+      setDeleteError(e instanceof Error ? e.message : 'Failed to delete account');
       setDeleting(false);
     }
   }
